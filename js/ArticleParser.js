@@ -7,6 +7,8 @@
    var _ignoredTags = [
       "SCRIPT", "SVG", "IFRAME", "STYLE", "OBJECT", "FOOTER", "NAV", "ASIDE" ];
 
+   var _ignoreTextNodes = ["SCRIPT", "STYLE", "NOSCRIPT"];
+
 
 
    ////////////////////////////////////////////////////////////////////////////
@@ -45,54 +47,6 @@
 
    ////////////////////////////////////////////////////////////////////////////
 
-   ArticleParser.prototype._findContainerWithTheMostParagraphs = function()
-   {
-      var $paragraphs = $("p");
-      var listOfParagraphContainers = [];
-
-      // Find the containers of all the paragraphs, and make sure they are
-      // unique.
-
-      $paragraphs.each( function( index, eParagraph )
-      {
-         if( !listOfParagraphContainers.some( function( $element ) {
-                  return $element.is( eParagraph.parentNode ); } ) )
-         {
-            listOfParagraphContainers.push( $(eParagraph.parentNode) );
-         }
-      });
-
-      // Sort the containers based on the number of paragraphs they have (in
-      // descending order.)
-
-      listOfParagraphContainers.sort( function( $container1, $container2 )
-      {
-         return $container2.children( "p" ).length -
-                $container1.children( "p" ).length;
-      });
-
-      // Some news sites would use the <p> elements very liberally. So we need
-      // to make sure the article container not only has the most paragraphs,
-      // but also has the most text.
-
-      var $containerWithTheMostParagraphs = $();
-      for( var i = 0; i < listOfParagraphContainers.length; i++ )
-      {
-         var $container = listOfParagraphContainers[i];
-         if(    $containerWithTheMostParagraphs.length === 0
-             || $container.children("p").text().length > $containerWithTheMostParagraphs.children("p").text().length * 2 )
-         {
-            $containerWithTheMostParagraphs = $container;
-         }
-      }
-
-      return $containerWithTheMostParagraphs;
-   };
-
-
-
-   ////////////////////////////////////////////////////////////////////////////
-
    ArticleParser.prototype._findContentContainer = function()
    {
       // Almost all the news sites use <p> for the article paragraphs. But
@@ -104,9 +58,9 @@
       var n, textNodes = [];
       var walker = document.createTreeWalker(document.documentElement, NodeFilter.SHOW_TEXT,
       {acceptNode: function(node) {
-        var noOfWords = node.nodeValue.replace(/\n/ig, "").trim().split(" ").length;
-        if (node.parentNode.tagName.toUpperCase() == "SCRIPT" || node.parentNode.tagName.toUpperCase() == "STYLE") return NodeFilter.FILTER_REJECT;
-        return noOfWords > 6 ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
+        var noOfWords = Util.numberOfWords(node.nodeValue);
+        if (Util.itemInArray(_ignoreTextNodes, node.parentNode.tagName.toUpperCase())) return NodeFilter.FILTER_REJECT;
+        return noOfWords > 3 ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
       }});
 
       var possibleContentNodes = [];
@@ -119,7 +73,7 @@
           var grandpa = walker.currentNode;
           while (goup) {
             grandpa = grandpa.parentNode;
-            if (ignoreElements.some(function(el) { return el == grandpa.tagName.toUpperCase();})) {
+            if (Util.itemInArray(ignoreElements, grandpa.tagName.toUpperCase())) {
               continue;
             }
             upNumber++;
@@ -136,6 +90,7 @@
             if (aNode.element == grandpa) {
               aNode.count++;
               aNode.texts.push(walker.currentNode);
+              aNode.words += Util.numberOfWords(walker.currentNode.nodeValue);
               found = true;
               break;
             }
@@ -143,20 +98,46 @@
           if (!found) {
             aNode = {element: grandpa, count: 1, texts: []};
             aNode.texts.push(walker.currentNode);
+            aNode.words = Util.numberOfWords(walker.currentNode.nodeValue);
             possibleContentNodes.push(aNode);
           }
         }
       }
 
-      possibleContentNodes.sort(function(a,b) {
-        return a.count > b.count ? -1 : 1;
-      });
-
+      console.log(possibleContentNodes);
       //return $contentContainer;
-      return possibleContentNodes[0];
+      return this._findBestContainerCandidate(possibleContentNodes);
    };
 
+   ArticleParser.prototype._findBestContainerCandidate = function (contenders) {
 
+     contenders.sort(function(a,b) {
+       return a.count > b.count ? -1 : 1;
+     });
+
+     var mostTexts = contenders[0];
+
+     //Calculate word average
+     for (var j = 0; j < contenders.length; j++) {
+       var current = contenders[j];
+       current.averageWords = current.words / current.count;
+     }
+
+     contenders.sort(function(a,b) {
+       return a.averageWords > b.averageWords ? -1 : 1;
+     });
+
+     var bestAverage = contenders[0];
+
+     if (mostTexts == bestAverage) return bestAverage;
+
+     //Choose the one that is closer to the top
+     var mostTextsPosition = mostTexts.element.getBoundingClientRect();
+     var bestAveragePosition = bestAverage.element.getBoundingClientRect();
+
+     return mostTextsPosition.top < bestAveragePosition.top ? mostTexts : bestAverage;
+
+   };
 
    ////////////////////////////////////////////////////////////////////////////
 
@@ -174,13 +155,13 @@
          try
          {
             shouldIgnore = (
-                  eElement.nodeType != Node.ELEMENT_NODE //Not an element
-               || $element.css( "float" ) === "left"
-               || $element.css( "float" ) === "right"
-               || $element.css( "position" ) === "absolute"
-               || $element.hasClass( _IGNORE_CLASS ) //we intentionally ignored it
-               || _ignoredTags.some( function( sTagName ) { return eElement.tagName.toUpperCase() === sTagName; } ) //it's tag is one that we've chosen to ignore
-               || !$element.is(":visible")); //if the element is hidden
+                  eElement.nodeType != Node.ELEMENT_NODE || //Not an element
+               $element.css( "float" ) === "left" ||
+               $element.css( "float" ) === "right" ||
+               $element.css( "position" ) === "absolute" ||
+               $element.hasClass( _IGNORE_CLASS ) ||//we intentionally ignored it
+               _ignoredTags.some( function( sTagName ) { return eElement.tagName.toUpperCase() === sTagName; } ) || //it's tag is one that we've chosen to ignore
+               !$element.is(":visible")); //if the element is hidden
 
             //Let's check if the element has real content or just shit.
             if (!shouldIgnore) {
@@ -195,7 +176,7 @@
               //if it is not and it has no h1, h2, h3 or p childs, ignore
               if (eElement.tagName.toLowerCase() != "h1" && eElement.tagName.toLowerCase() != "h2" &&
                   eElement.tagName.toLowerCase() != "h3" && eElement.tagName.toLowerCase() != "p" &&
-                  $element.find("h1").length == 0 && $element.find("h2").length == 0 && $element.find("h3").length == 0 && $element.find("p").length == 0) {
+                  $element.find("h1").length === 0 && $element.find("h2").length === 0 && $element.find("h3").length === 0 && $element.find("p").length === 0) {
                 shouldIgnore = true;
               }
             }
@@ -245,11 +226,11 @@
       var listOfHeadingElements = [];
 
       for( var i = 0;
-              i < listOfHeadingElementTags.length
-           && listOfHeadingElements.length === 0;
+              i < listOfHeadingElementTags.length;
            i++ )
       {
-         listOfHeadingElements = $.makeArray( $( listOfHeadingElementTags[i] ) );
+         var headArray = $.makeArray( $( listOfHeadingElementTags[i] ) );
+         for (var j = 0; j < headArray.length; j++) {listOfHeadingElements.push(headArray[j]);}
       }
 
       listOfHeadingElements.sort( function( eElement1, eElement2 )
@@ -350,11 +331,12 @@
      }*/
      var added = [];
      for (var i = 0; i < analysisResult.texts.length; i++) {
-       var paragraph = document.createElement("p");
        var textParent = analysisResult.texts[i].parentNode;
-       if (added.some(function (element) {
-         return element == textParent;
-       })) {
+       while(this._isInlineElement(textParent)) {
+         textParent = textParent.parentNode;
+       }
+       var paragraph = document.createElement(textParent.tagName);
+       if (Util.itemInArray(added,paragraph)) {
          continue;
        }
        paragraph.innerHTML = textParent.innerHTML;
@@ -367,6 +349,13 @@
 
    };
 
+   ArticleParser.prototype._isInlineElement = function (node) {
+     var inlineTags = ["SPAN", "A"];
+     return inlineTags.some(function (tag) {
+       return tag == node.tagName.toUpperCase();
+     });
+   };
+
    ArticleParser.prototype._appendChildren = function(container, node) {
 
      var $node = $(node);
@@ -375,7 +364,7 @@
        container.appendChild(clone);
      }
 
-   }
+   };
 
    ////////////////////////////////////////////////////////////////////////////
 
@@ -398,14 +387,14 @@
          {
             var sClassName = listOfClassNames[j];
 
-            if(    Util.hasSubstringCaseInsensitive( sClassName, "article" )
-                && Util.hasSubstringCaseInsensitive( sClassName, "body" ) )
+            if(    Util.hasSubstringCaseInsensitive( sClassName, "article" ) &&
+                Util.hasSubstringCaseInsensitive( sClassName, "body" ) )
             {
                var $splitContentContainer = $container.siblings( "." + sClassName );
                var $separatedParagraphs = $splitContentContainer.find( "p" );
 
-               if(    $splitContentContainer.length === 1
-                   && $separatedParagraphs.length > 0 )
+               if(    $splitContentContainer.length === 1 &&
+                   $separatedParagraphs.length > 0 )
                {
                   isSplitIntoTwoContainers = true;
 
