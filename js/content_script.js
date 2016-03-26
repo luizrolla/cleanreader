@@ -4,7 +4,7 @@
 
    chrome.extension.onMessage.addListener( function( sMessage, oSender, fResponseCallback )
    {
-      if( sMessage === "Purify" )
+      if( sMessage === "Cleanreader" )
       {
         chrome.storage.sync.get({
           bgColor: '#f7f7f7',

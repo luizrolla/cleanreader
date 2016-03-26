@@ -4,7 +4,15 @@
 
    window.Util = {};
 
+   Util.itemInArray = function (array, item) {
+     return array.some(function (element) {
+       return element == item;
+     });
+   };
 
+   Util.numberOfWords = function (text) {
+     return text.replace(/\n/ig, "").trim().split(" ").length;
+   }
 
    ////////////////////////////////////////////////////////////////////////////
 

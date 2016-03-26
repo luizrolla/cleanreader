@@ -1,6 +1,6 @@
 (function()
 {
-   var sMenuItemTitle = "Purify";
+   var sMenuItemTitle = "Cleanreader";
 
    chrome.browserAction.onClicked.addListener( function( tab )
    {
@@ -8,7 +8,7 @@
    });
 
    chrome.commands.onCommand.addListener(function(command) {
-    if (command == "activate_purify") {
+    if (command == "activate_cleaner") {
       chrome.tabs.query({active: true, currentWindow: true}, function(tabs) {
         chrome.tabs.sendMessage(tabs[0].id, sMenuItemTitle);
       });
@@ -34,7 +34,7 @@
          {
             if( fSendResponse )
             {
-               var name  = oRequest["name"];
+               var name  = oRequest.name;
                var value = localStorage[ name ];
 
                var oResponse = {};
@@ -45,7 +45,7 @@
          }
          else if( oRequest.action === "setLocalStorage" )
          {
-            localStorage[ oRequest["name"] ] = oRequest["value"];
+            localStorage[ oRequest.name ] = oRequest.value;
          }
          else
          {
